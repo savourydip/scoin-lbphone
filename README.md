@@ -97,17 +97,4 @@ price = 500, -- Price in game currency
 - Check that the `player_identifier` column matches the player's `citizenid`
 - Look for errors in server console (enable debug prints in server.lua if needed)
 
-### Dark mode not working
-- LB Phone automatically handles dark/light mode
-- The app will match the phone's theme setting
 
-## Support
-
-For issues or questions, check:
-- Server console for error messages
-- Database to verify player records exist
-- LB Phone documentation: https://docs.lbscripts.com/phone/
-
-## Credits
-
-Created for use with LB Phone by lbscripts.com
