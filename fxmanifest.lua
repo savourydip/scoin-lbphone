@@ -3,7 +3,7 @@ game 'gta5'
 lua54 'yes'
 
 author 'Dip for Beacon RP'
-description 'sCoin Balance App for LB Phone'
+description 'sCoin Balance App'
 version '1.0.0'
 
 client_scripts {

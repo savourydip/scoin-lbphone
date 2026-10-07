@@ -19,9 +19,17 @@
     --error: #ef4444;
 }
 
+/*
+ * SD phone / FiveM: the ui page is rendered as a fullscreen overlay, so html and
+ * body must stay hidden and transparent. The phone reveals the body when it loads
+ * the page inside the app frame. Put backgrounds on .app, never on html/body.
+ */
 html, body {
     margin: 0;
     padding: 0;
+    height: 100%;
+    visibility: hidden;
+    background: transparent;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -32,11 +40,12 @@ html, body {
     height: 100%;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
     background: var(--bg-light);
     color: var(--text-light);
 }
 
-/* Dark mode */
+/* Dark mode (data-theme is set on <html> from the phone settings) */
 [data-theme="dark"] .app {
     background: var(--bg-dark);
     color: var(--text-dark);
@@ -45,6 +54,7 @@ html, body {
 /* Tab Navigation */
 .tab-navigation {
     display: flex;
+    flex-shrink: 0;
     background: var(--card-light);
     border-bottom: 2px solid var(--border-light);
     padding: 0;
@@ -96,6 +106,7 @@ html, body {
 .tab-content {
     display: none;
     flex: 1;
+    min-height: 0; /* lets the content scroll instead of overflowing the frame */
     overflow-y: auto;
 }
 
@@ -525,11 +536,11 @@ html, body {
     .container {
         padding: 1.5rem 1rem;
     }
-    
+
     .balance-amount {
         font-size: 2.5rem;
     }
-    
+
     .title {
         font-size: 1.5rem;
     }

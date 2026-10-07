@@ -1,37 +1,92 @@
 // Store current balance and citizen ID
 let currentBalance = 0;
 let currentCitizenId = null;
+let balanceInterval = null;
 
-// Fetch NUI function for communicating with FiveM
-async function fetchNui(eventName, data) {
-    const options = {
-        method: 'post',
-        headers: {
-            'Content-Type': 'application/json; charset=UTF-8',
-        },
-        body: JSON.stringify(data || {})
-    };
+// In a plain browser (no FiveM) there is no invokeNative
+const devMode = !window.invokeNative;
 
-    const resourceName = window.GetParentResourceName ? window.GetParentResourceName() : 'scoin-lbphone';
-    const resp = await fetch(`https://${resourceName}/${eventName}`, options);
-    return await resp.json();
+// Resolves once the phone has injected its API (fetchNui, useNuiEvent, etc.)
+function whenReady() {
+    return new Promise((resolve) => {
+        if (window.componentsLoaded) return resolve();
+
+        const poll = setInterval(() => {
+            if (window.componentsLoaded) {
+                clearInterval(poll);
+                resolve();
+            }
+        }, 50);
+
+        window.addEventListener('message', (e) => {
+            if (e.data === 'componentsLoaded') {
+                clearInterval(poll);
+                resolve();
+            }
+        });
+    });
+}
+
+// Wrapper around the phone's injected fetchNui (targets THIS resource's NUI callbacks).
+// Named "nui" on purpose so it never clashes with the injected global.
+function nui(eventName, data) {
+    if (typeof window.fetchNui !== 'function') return Promise.resolve();
+    return window.fetchNui(eventName, data || {});
+}
+
+// SD phone: useNuiEvent. lb-phone fallback: plain window message event.
+function onNui(action, cb) {
+    if (typeof window.useNuiEvent === 'function') {
+        window.useNuiEvent(action, cb);
+    } else {
+        window.addEventListener('message', (e) => {
+            if (e.data && e.data.action === action) {
+                cb(e.data.data !== undefined ? e.data.data : e.data);
+            }
+        });
+    }
+}
+
+// Light/dark theme from the phone settings
+function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
+}
+
+async function initTheme() {
+    try {
+        if (typeof window.GetSettings !== 'function') return;
+        const settings = await window.GetSettings();
+        setTheme(settings && settings.display && settings.display.theme);
+
+        if (typeof window.OnSettingsChange === 'function') {
+            window.OnSettingsChange((s) => setTheme(s && s.display && s.display.theme));
+        }
+    } catch (e) {
+        // keep default theme
+    }
 }
 
 // Update balance display
 function updateBalance(balance, citizenId) {
     currentBalance = balance;
     currentCitizenId = citizenId;
-    
+
     const balanceElement = document.getElementById('balance');
     const transferBalanceElement = document.getElementById('transferBalance');
     const citizenIdElement = document.getElementById('citizenId');
     const refreshBtn = document.getElementById('refreshBtn');
-    
+
     // Update citizen ID
     if (citizenId && citizenIdElement) {
         citizenIdElement.textContent = citizenId;
     }
-    
+
+    // Stop any animation still running from a previous update
+    if (balanceInterval) {
+        clearInterval(balanceInterval);
+        balanceInterval = null;
+    }
+
     // Animate number change for balance
     const currentDisplayBalance = parseInt(balanceElement.textContent.replace(/,/g, '')) || 0;
     const targetBalance = balance;
@@ -39,16 +94,17 @@ function updateBalance(balance, citizenId) {
     const steps = 30;
     const increment = (targetBalance - currentDisplayBalance) / steps;
     const stepDuration = duration / steps;
-    
+
     let currentStep = 0;
-    
-    const interval = setInterval(() => {
+
+    balanceInterval = setInterval(() => {
         currentStep++;
         const newValue = Math.round(currentDisplayBalance + (increment * currentStep));
         balanceElement.textContent = newValue.toLocaleString();
-        
+
         if (currentStep >= steps) {
-            clearInterval(interval);
+            clearInterval(balanceInterval);
+            balanceInterval = null;
             balanceElement.textContent = targetBalance.toLocaleString();
             if (transferBalanceElement) {
                 transferBalanceElement.textContent = targetBalance.toLocaleString() + ' sCoin';
@@ -64,8 +120,8 @@ async function requestBalance() {
     if (refreshBtn) {
         refreshBtn.classList.add('loading');
     }
-    
-    await fetchNui('getBalance', {});
+
+    await nui('getBalance', {});
 }
 
 // Copy citizen ID to clipboard
@@ -78,7 +134,7 @@ function copyCitizenId() {
         tempInput.select();
         document.execCommand('copy');
         document.body.removeChild(tempInput);
-        
+
         // Show feedback
         const copyBtn = document.getElementById('copyCitizenBtn');
         const originalHTML = copyBtn.innerHTML;
@@ -100,7 +156,7 @@ function switchTab(tabName) {
             btn.classList.remove('active');
         }
     });
-    
+
     // Update tab content
     const tabContents = document.querySelectorAll('.tab-content');
     tabContents.forEach(content => {
@@ -110,7 +166,7 @@ function switchTab(tabName) {
             content.classList.remove('active');
         }
     });
-    
+
     // Update transfer balance when switching to transfer tab
     if (tabName === 'transfer') {
         const transferBalanceElement = document.getElementById('transferBalance');
@@ -124,12 +180,12 @@ function switchTab(tabName) {
 function showAlert(message, isSuccess) {
     const alert = document.getElementById('transferAlert');
     const alertMessage = document.getElementById('alertMessage');
-    
+
     if (alert && alertMessage) {
         alertMessage.textContent = message;
         alert.className = 'alert ' + (isSuccess ? 'alert-success' : 'alert-error');
         alert.style.display = 'block';
-        
+
         // Auto hide after 5 seconds
         setTimeout(() => {
             alert.style.display = 'none';
@@ -140,121 +196,125 @@ function showAlert(message, isSuccess) {
 // Handle transfer form submission
 async function handleTransfer(event) {
     event.preventDefault();
-    
+
     const recipientId = document.getElementById('recipientId').value.trim();
     const amount = parseInt(document.getElementById('amount').value);
     const transferBtn = document.getElementById('transferBtn');
-    
+
     // Validate inputs
     if (!recipientId) {
         showAlert('Please enter a recipient Citizen ID', false);
         return;
     }
-    
+
     if (!amount || amount <= 0) {
         showAlert('Please enter a valid amount', false);
         return;
     }
-    
+
     if (amount > currentBalance) {
         showAlert('Insufficient balance', false);
         return;
     }
-    
+
     if (recipientId === currentCitizenId) {
         showAlert('Cannot transfer to yourself', false);
         return;
     }
-    
+
     // Show loading state
     transferBtn.classList.add('loading');
     transferBtn.disabled = true;
-    
+
     // Send transfer request
-    await fetchNui('transfer', {
+    await nui('transfer', {
         citizenId: recipientId,
         amount: amount
     });
 }
 
-// Listen for messages from client.lua
-window.addEventListener('message', (event) => {
-    const data = event.data;
-    
-    if (data.action === 'updateBalance') {
-        updateBalance(data.balance, data.citizenId);
-    } else if (data.action === 'transferResult') {
-        const transferBtn = document.getElementById('transferBtn');
-        if (transferBtn) {
-            transferBtn.classList.remove('loading');
-            transferBtn.disabled = false;
-        }
-        
-        showAlert(data.message, data.success);
-        
-        if (data.success) {
-            // Clear form
-            document.getElementById('recipientId').value = '';
-            document.getElementById('amount').value = '';
-            
-            // Update balance
-            if (data.newBalance !== undefined) {
-                currentBalance = data.newBalance;
-                const balanceElement = document.getElementById('balance');
-                const transferBalanceElement = document.getElementById('transferBalance');
-                if (balanceElement) {
-                    balanceElement.textContent = data.newBalance.toLocaleString();
-                }
-                if (transferBalanceElement) {
-                    transferBalanceElement.textContent = data.newBalance.toLocaleString() + ' sCoin';
-                }
-            }
-            
-            // Switch back to balance tab after successful transfer
-            setTimeout(() => {
-                switchTab('balance');
-            }, 2000);
-        }
-    } else if (data.action === 'receiveNotification') {
-        // Show notification when receiving sCoin
-        showAlert(`You received ${data.amount.toLocaleString()} sCoin from ${data.senderCitizenId}`, true);
-        
-        // Refresh balance
-        requestBalance();
+// Result of a transfer, pushed from client.lua
+function handleTransferResult(data) {
+    const transferBtn = document.getElementById('transferBtn');
+    if (transferBtn) {
+        transferBtn.classList.remove('loading');
+        transferBtn.disabled = false;
     }
-});
 
-// Load balance on page load
+    showAlert(data.message, data.success);
+
+    if (data.success) {
+        // Clear form
+        document.getElementById('recipientId').value = '';
+        document.getElementById('amount').value = '';
+
+        // Update balance
+        if (data.newBalance !== undefined && data.newBalance !== null) {
+            currentBalance = data.newBalance;
+            const balanceElement = document.getElementById('balance');
+            const transferBalanceElement = document.getElementById('transferBalance');
+            if (balanceElement) {
+                balanceElement.textContent = data.newBalance.toLocaleString();
+            }
+            if (transferBalanceElement) {
+                transferBalanceElement.textContent = data.newBalance.toLocaleString() + ' sCoin';
+            }
+        }
+
+        // Switch back to balance tab after successful transfer
+        setTimeout(() => {
+            switchTab('balance');
+        }, 2000);
+    }
+}
+
+// Runs once the phone API exists
+function initApp() {
+    onNui('updateBalance', (d) => updateBalance(d.balance, d.citizenId));
+
+    onNui('transferResult', handleTransferResult);
+
+    onNui('receiveNotification', (d) => {
+        showAlert(`You received ${Number(d.amount).toLocaleString()} sCoin from ${d.senderCitizenId}`, true);
+        requestBalance();
+    });
+
+    initTheme();
+
+    // UI pulls its own data on mount (don't push from onOpen)
+    requestBalance();
+}
+
+// DOM listeners (safe at parse time, they only use the phone API on click)
 document.addEventListener('DOMContentLoaded', () => {
     const refreshBtn = document.getElementById('refreshBtn');
     const copyCitizenBtn = document.getElementById('copyCitizenBtn');
     const transferForm = document.getElementById('transferForm');
     const tabButtons = document.querySelectorAll('.tab-btn');
-    
-    // Add click listener to refresh button
+
     if (refreshBtn) {
         refreshBtn.addEventListener('click', requestBalance);
     }
-    
-    // Add click listener to copy citizen ID button
+
     if (copyCitizenBtn) {
         copyCitizenBtn.addEventListener('click', copyCitizenId);
     }
-    
-    // Add submit listener to transfer form
+
     if (transferForm) {
         transferForm.addEventListener('submit', handleTransfer);
     }
-    
-    // Add click listeners to tab buttons
+
     tabButtons.forEach(btn => {
         btn.addEventListener('click', () => {
             switchTab(btn.dataset.tab);
         });
     });
-    
-    // Auto-load balance on open
-    setTimeout(() => {
-        requestBalance();
-    }, 100);
 });
+
+// Boot
+if (devMode) {
+    // Plain browser: reveal the page, no phone API available
+    document.body.style.visibility = 'visible';
+} else {
+    whenReady().then(initApp);
+}
