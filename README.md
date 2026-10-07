@@ -1,6 +1,6 @@
-# sCoin LB Phone App
+# sCoin Phone App
 
-A custom LB Phone app that displays the player's sCoin cryptocurrency balance from the `ra_boosting_user_settings` database table.
+A custom Phone app that displays the player's sCoin cryptocurrency balance from the `ra_boosting_user_settings` database table.
 
 ## Features
 
@@ -12,7 +12,7 @@ A custom LB Phone app that displays the player's sCoin cryptocurrency balance fr
 
 ## Requirements
 
-- LB Phone (v1.5.0 or higher)
+- LB Phone (v1.5.0 or higher) or SD Phone
 - QBX Core (qbx_core)
 - oxmysql
 - `ra_boosting_user_settings` table in your database
